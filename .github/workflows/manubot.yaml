@@ -1,0 +1,72 @@
+name: Manubot
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      BUILD_PDF:
+        type: boolean
+        description: Generate PDF output
+        default: true
+
+jobs:
+  manubot:
+    name: Build Manubot manuscript
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GITHUB_PULL_REQUEST_SHA: ${{ github.event.pull_request.head.sha }}
+    defaults:
+      run:
+        shell: bash --login {0}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set environment variables
+        run: |
+          TRIGGERING_SHA=${GITHUB_PULL_REQUEST_SHA:-$GITHUB_SHA}
+          echo "TRIGGERING_SHA_7=${TRIGGERING_SHA::7}" >> $GITHUB_ENV
+          echo "DEFAULT_BRANCH=${{ github.event.repository.default_branch }}" >> $GITHUB_ENV
+          echo "DEFAULT_BRANCH_REF=refs/heads/${{ github.event.repository.default_branch }}" >> $GITHUB_ENV
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "BUILD_PDF=${{ github.event.inputs.BUILD_PDF }}" >> $GITHUB_ENV
+          fi
+
+      - name: Cache Manubot metadata
+        uses: actions/cache@v5
+        with:
+          path: ci/cache
+          key: ci-cache-${{ github.ref }}
+          restore-keys: |
+            ci-cache-${{ env.DEFAULT_BRANCH_REF }}
+
+      - name: Install Manubot environment
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          activate-environment: manubot
+          environment-file: build/environment.yml
+          auto-activate-base: false
+
+      - name: Build manuscript
+        run: bash build/build.sh
+
+      - name: Upload manuscript artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: manuscript-${{ github.run_id }}-${{ env.TRIGGERING_SHA_7 }}
+          path: output
+
+      - name: Deploy manuscript
+        if: github.ref == env.DEFAULT_BRANCH_REF && github.event_name != 'pull_request' && !github.event.repository.fork
+        env:
+          MANUBOT_ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI_BUILD_WEB_URL: https://github.com/${{ github.repository }}/commit/${{ github.sha }}/checks
+          CI_JOB_WEB_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash ci/deploy.sh

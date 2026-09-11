@@ -1,0 +1,13 @@
+# Manubot generated outputs
+output/
+webpage/*
+!webpage/README.md
+
+# Manubot cache
+ci/cache/
+
+# Local build helpers
+images
+.DS_Store
+*.pyc
+__pycache__/
